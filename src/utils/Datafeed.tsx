@@ -1,10 +1,13 @@
 // @ts-nocheck
 import { useMemo } from 'react';
+import { forEachChild } from 'typescript';
 import { USE_MARKETS } from './markets';
 import { sleep } from './utils';
 
-const URL_SERVER='https://api.raydium.io/tv/';
-
+const URL_SERVER = 'https://api.raydium.io/tv/';
+const configurationData = {
+  supported_resolutions: ['5', '15', '60', '120', '240', '1D'],
+}
 export const useTvDataFeed = () => {
   return useMemo(() => makeDataFeed(), []);
 };
@@ -12,7 +15,7 @@ export const useTvDataFeed = () => {
 const makeDataFeed = () => {
   let subscriptions = {};
   const overTime = {};
-  const lastReqTime = {}; 
+  const lastReqTime = {};
 
   const getApi = async (url: string) => {
     try {
@@ -22,8 +25,8 @@ const makeDataFeed = () => {
         return responseJson.success
           ? responseJson.data
           : responseJson
-          ? responseJson
-          : null
+            ? responseJson
+            : null
       }
     } catch (err) {
       console.log(`Error fetching from Chart API ${url}: ${err}`)
@@ -35,7 +38,7 @@ const makeDataFeed = () => {
     onReady(callback) {
       setTimeout(() => callback({
         supported_resolutions: ['5', '15', '60', '120', '240', '1D',
-        //  '2D', '3D', '5D', '1W', '1M', '2M', '3M', '6M', '12M'
+          //  '2D', '3D', '5D', '1W', '1M', '2M', '3M', '6M', '12M'
         ],
         supports_group_request: false,
         supports_marks: false,
@@ -57,13 +60,13 @@ const makeDataFeed = () => {
       let customMarket = []
       try {
         const customMarketStr = localStorage.getItem('customMarkets')
-        customMarket =  customMarketStr !== null ?JSON.parse(customMarketStr): []
-      } catch(e) {
+        customMarket = customMarketStr !== null ? JSON.parse(customMarketStr) : []
+      } catch (e) {
         console.log('error', e)
       }
       let marketInfo = USE_MARKETS.find(item => item.name === symbolName && !item.deprecated)
 
-      if (!marketInfo){
+      if (!marketInfo) {
         marketInfo = customMarket.find(item => item.name === symbolName || item.userName === symbolName)
         fromCustomMarket = true
       }
@@ -72,31 +75,60 @@ const makeDataFeed = () => {
         return
       }
 
-      const result = await getApi(`${URL_SERVER}symbols?market=${marketInfo.address.toString()}`)
-      if (!result) {
+      console.log("symbolName", symbolName);
+      const pairs = await getApi('https://dry-ravine-67635.herokuapp.com/pairs');
+      console.log("pairs", pairs);
+      let marketId = "";
+      pairs.forEach(item => {
+        if (item.name === symbolName) {
+          marketId = item.marketId
+        }
+      })
+      if (marketId === "") {
         onResolveErrorCallback();
         return;
       }
-      if (result.name !== marketInfo.name) {
-        if (result.name.includes('unknown')) {
-          result.name = marketInfo.name
-          result.ticker = marketInfo.name
-          result.description = marketInfo.name
-        } else {
-          if (fromCustomMarket) {
-            for(let index = 0 ; index < customMarket.length; index++ ) {
-              if (customMarket[index].name === symbolName) {
-                customMarket[index].userName = customMarket[index].name
-                customMarket[index].name = result.name
-              }
-            }
-            localStorage.setItem('customMarkets', JSON.stringify(customMarket))
-          } else {
-            result.name = marketInfo.name
-          }
-        }
+      // const result = await getApi(`https://dry-ravine-67635.herokuapp.com/trades/address/${marketId}`)
+      // console.log("marketinfo address", result)
+      // if (!result) {
+      //   onResolveErrorCallback();
+      //   return;
+      // }
+      // if (result.name !== marketInfo.name) {
+      //   if (result.name.includes('unknown')) {
+      //     result.name = marketInfo.name
+      //     result.ticker = marketInfo.name
+      //     result.description = marketInfo.name
+      //   } else {
+      //     if (fromCustomMarket) {
+      //       for (let index = 0; index < customMarket.length; index++) {
+      //         if (customMarket[index].name === symbolName) {
+      //           customMarket[index].userName = customMarket[index].name
+      //           customMarket[index].name = result.name
+      //         }
+      //       }
+      //       localStorage.setItem('customMarkets', JSON.stringify(customMarket))
+      //     } else {
+      //       result.name = marketInfo.name
+      //     }
+      //   }
+      // }
+      const symbol = {
+        ticker: marketId,
+        name: symbolName,
+        session: '24x7',
+        timezone: 'Etc/UTC',
+        minmov: 1,
+        pricescale: 10000000,
+        has_intraday: true,
+        // intraday_multipliers: ['1', '5', '15', '30', '60'],
+        has_empty_bars: true,
+        has_weekly_and_monthly: false,
+        supported_resolutions: configurationData.supported_resolutions,
+        volume_precision: 1,
+        data_status: 'streaming',
       }
-      onSymboleResolvedCallback(result);
+      onSymboleResolvedCallback(symbol);
     },
     async getBars(
       symbolInfo,
@@ -110,30 +142,34 @@ const makeDataFeed = () => {
       from = Math.floor(from);
       to = Math.ceil(to);
 
-      resolution = convertResolutionToApi(resolution)
+      // resolution = convertResolutionToApi(resolution)
 
-      if (from < minTs(symbolInfo.out_count, resolution)) {
-        onHistoryCallback([], {nodeData: false})
-        return
-      }
+      // if (from < minTs(symbolInfo.out_count, resolution)) {
+      //   onHistoryCallback([], { nodeData: false })
+      //   return
+      // }
 
       if (from < 1609459200) from = 1609459200
-      
+
       const key = `${symbolInfo.market}--${resolution}`
+      console.log("symbole---name", symbolInfo.name);
+      let symbolName = symbolInfo.name.replaceAll("/", "%2F");
 
       if (overTime[key] && overTime[key] > from) {
-        onHistoryCallback([], {nodeData: false})
+        onHistoryCallback([], { nodeData: false })
         return
       }
 
       try {
+        console.log("api", `https://dry-ravine-67635.herokuapp.com/tv/history?symbol=${symbolName}&resolution=${resolution}&from=${from}&to=${to}`);
         const result = await getApi(
-          `${URL_SERVER}history?market=${symbolInfo.market}&resolution=${resolution}&from_time=${from}&to_time=${to}`
+          `https://dry-ravine-67635.herokuapp.com/tv/history?symbol=${symbolName}&resolution=${resolution}&from=${from}&to=${to}`
         )
+        console.log(result);
 
-        if (result.c.length === 0 ) {
+        if (result.c.length === 0) {
           overTime[key] = to
-        } 
+        }
 
         onHistoryCallback(parseCandles(result), {
           nodeData: result.length === 0,
@@ -173,6 +209,9 @@ const makeDataFeed = () => {
           const from = reduceTs(to, resolution);
 
           const resolutionApi = convertResolutionToApi(resolution)
+          // if (resolution === '1D') {
+          //   resolution = 1440
+          // }
 
           if (lastReqTime[subscriberUID] && lastReqTime[subscriberUID] + 1000 * 60 > new Date().getTime()) {
             continue
@@ -180,10 +219,10 @@ const makeDataFeed = () => {
           lastReqTime[subscriberUID] = new Date().getTime()
 
           const candle = await getApi(
-            `${URL_SERVER}history?market=${symbolInfo.market}&resolution=${resolutionApi}&from_time=${from}&to_time=${to}`
+            `https://dry-ravine-67635.herokuapp.com/tv/history?symbol=SOL%2FUSDC&resolution=${resolution}&from=${from}&to=${to}`
           )
 
-          for (const item of parseCandles(candle)){
+          for (const item of parseCandles(candle)) {
             onRealtimeCallback(item);
           }
           continue;
@@ -252,15 +291,15 @@ const minTs = (minCount: number, resolutionTv: string) => {
       return ts - 3600 * 24 * 5 * minCount;
     case '7d':
       return ts - 3600 * 24 * 7 * minCount;
-    case '1m' :
+    case '1m':
       return ts - 3600 * 24 * 31 * 1 * minCount;
-    case '2m' :
+    case '2m':
       return ts - 3600 * 24 * 31 * 2 * minCount;
-    case '3m' :
+    case '3m':
       return ts - 3600 * 24 * 31 * 3 * minCount;
-    case '6m' :
+    case '6m':
       return ts - 3600 * 24 * 31 * 6 * minCount;
-    case '1y' :
+    case '1y':
       return ts - 3600 * 24 * 31 * 12 * minCount;
     default:
       throw Error(`minTs resolution error: ${resolutionTv}`)
@@ -299,15 +338,15 @@ const reduceTs = (ts: number, resolutionTv: string) => {
       return ts - 3600 * 24 * 5;
     case '7D':
       return ts - 3600 * 24 * 7;
-    case '1M': 
+    case '1M':
       return ts - 3600 * 24 * 31 * 1;
-    case '2M': 
+    case '2M':
       return ts - 3600 * 24 * 31 * 2;
-    case '3M': 
+    case '3M':
       return ts - 3600 * 24 * 31 * 3;
-    case '6M': 
+    case '6M':
       return ts - 3600 * 24 * 31 * 6;
-    case '1Y': 
+    case '1Y':
       return ts - 3600 * 24 * 31 * 12;
     default:
       throw Error(`reduceTs resolution error: ${resolutionTv}`)
@@ -346,15 +385,15 @@ const convertResolutionToApi = (resolution: string) => {
       return '5d';
     case '7D':
       return '7d';
-    case '1M': 
+    case '1M':
       return '1m';
-    case '2M': 
+    case '2M':
       return '2m';
-    case '3M': 
+    case '3M':
       return '3m';
-    case '6M': 
+    case '6M':
       return '6m';
-    case '1Y': 
+    case '1Y':
       return '1y';
     default:
       throw Error(`convertResolutionToApi resolution error: ${resolution}`)
